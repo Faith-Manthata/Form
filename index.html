@@ -144,18 +144,26 @@
          CONFIG — paste your deployed Apps Script Web App URL here
          (Deploy > New deployment > Web app > copy the /exec URL)
          ========================================================= */
-      const API_URL = "https://script.google.com/macros/s/AKfycbxxEnlH5s-TBWuHVHlSdBF85TDbo9ZRBjp-0M7ts0hZpxWYAxTI8ildjrnbcF2Fvu9FBQ/exec";
+      const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE/exec";
 
       let userSession = {}; let employees = []; let registerState = {}; let hasGroupPhoto = false; let sessionFirstRow = null;
       let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = [];
       let currentLocation = "Location: Fetching...";
 
-      window.onload = () => {
+      window.onload = async () => {
         document.getElementById('regDate').valueAsDate = new Date();
         fetchLocation();
         updateConnBadge();
         registerServiceWorker();
         refreshQueueBadge();
+
+        // Stay-logged-in: if a session was saved from a previous login, skip the
+        // login screen entirely and go straight into the form — works offline too.
+        const active = await idbKeyval.get('activeSession');
+        if (active) {
+          userSession = active;
+          enterApp();
+        }
       };
 
       /* ---------------- API layer (replaces google.script.run) ---------------- */
@@ -235,7 +243,8 @@
 
       function showToast(msg) { const t = document.getElementById('toast'); t.innerText = msg; t.style.display = 'block'; setTimeout(() => { t.style.display = 'none'; }, 4000); }
 
-      function logout() {
+      async function logout() {
+        await idbKeyval.del('activeSession'); // stop auto-login; cached credentials for this user remain for manual offline login later
         userSession = {}; employees = []; registerState = {}; hasGroupPhoto = false; sessionFirstRow = null; lateRecordsLog = [];
         document.getElementById('appView').classList.add('hidden');
         document.getElementById('loginView').classList.remove('hidden');
@@ -267,6 +276,7 @@
             // Note: same trust model as the original app's own password check (plaintext compare) —
             // just be aware credentials are cached client-side on this device for offline login.
             await idbKeyval.set(cacheKeyName, { ...res, _pass: p.toLowerCase().trim() });
+            await idbKeyval.set('activeSession', res); // stay logged in on this device until explicit logout
             enterApp();
           } else {
             alert(res.message);
@@ -277,6 +287,7 @@
           const cached = await idbKeyval.get(cacheKeyName);
           if (cached && cached._pass === p.toLowerCase().trim()) {
             userSession = cached;
+            await idbKeyval.set('activeSession', cached); // stay logged in on this device until explicit logout
             showToast('Offline Mode: using saved session');
             enterApp();
           } else {
