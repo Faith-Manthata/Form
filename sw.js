@@ -1,3 +1,5 @@
+importScripts('https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js');
+
 const CACHE_NAME = 'attendance-portal-v1';
 const ASSETS = [
   './',
@@ -47,3 +49,41 @@ self.addEventListener('fetch', (event) => {
     })
   );
 });
+
+/**
+ * Background Sync — Chrome/Android only (Safari/iOS has no Background Sync API,
+ * so on iPhones this handler simply never fires; those devices keep relying on
+ * the on-open sync in index.html, which works everywhere).
+ * The browser calls this on its own schedule once it detects connectivity,
+ * even if the app tab/PWA is closed.
+ */
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'sync-attendance') {
+    event.waitUntil(syncPendingRecords());
+  }
+});
+
+async function syncPendingRecords() {
+  const apiUrl = await idbKeyval.get('apiUrl');
+  if (!apiUrl) return;
+
+  const queue = (await idbKeyval.get('syncQueue')) || [];
+  if (queue.length === 0) return;
+
+  const remaining = [];
+  for (const item of queue) {
+    try {
+      const isLate = item.type === 'late';
+      const res = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ fn: 'commitAttendanceRow', args: [item.payload, isLate, isLate] })
+      });
+      const data = await res.json();
+      if (data && data.status === 'Error') throw new Error(data.message);
+    } catch (err) {
+      remaining.push(item); // still failing — keep it queued for next attempt
+    }
+  }
+  await idbKeyval.set('syncQueue', remaining);
+}
