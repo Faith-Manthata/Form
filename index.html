@@ -144,7 +144,7 @@
          CONFIG — paste your deployed Apps Script Web App URL here
          (Deploy > New deployment > Web app > copy the /exec URL)
          ========================================================= */
-      const API_URL = "https://script.google.com/macros/s/AKfycbxxEnlH5s-TBWuHVHlSdBF85TDbo9ZRBjp-0M7ts0hZpxWYAxTI8ildjrnbcF2Fvu9FBQ/exec";
+      const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE/exec";
 
       let userSession = {}; let employees = []; let registerState = {}; let hasGroupPhoto = false; let sessionFirstRow = null;
       let replacementPool = { regions: [], allStaff: [] }; let lateRecordsLog = [];
@@ -156,6 +156,7 @@
         updateConnBadge();
         registerServiceWorker();
         refreshQueueBadge();
+        await idbKeyval.set('apiUrl', API_URL); // lets the service worker sync in the background, even when this tab is closed
 
         // Stay-logged-in: if a session was saved from a previous login, skip the
         // login screen entirely and go straight into the form — works offline too.
@@ -185,6 +186,20 @@
         queue.push({ id: Date.now() + '_' + Math.random().toString(36).slice(2), type, payload, ts: new Date().toISOString() });
         await idbKeyval.set('syncQueue', queue);
         await refreshQueueBadge();
+        await requestBackgroundSync();
+      }
+
+      // Chrome/Android only — Safari/iOS has no Background Sync API, so this
+      // silently does nothing there; those devices still sync fine on next app open.
+      async function requestBackgroundSync() {
+        if ('serviceWorker' in navigator && 'SyncManager' in window) {
+          try {
+            const reg = await navigator.serviceWorker.ready;
+            await reg.sync.register('sync-attendance');
+          } catch (err) {
+            console.warn('Background sync registration failed', err);
+          }
+        }
       }
 
       async function refreshQueueBadge() {
